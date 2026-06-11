@@ -84,12 +84,12 @@ con guiones bajos que no coinciden con lo pedido.
 
 | Archivo | Descripción | Generado por |
 |---------|-------------|--------------|
-| `pendientes_grok.php` | CRUD con UPDATE roto | Grok (jun 2026) |
-| `pendientes_gemini.php` | CRUD funcional, fecha DATE | Gemini (jun 2026) |
-| `pendientes_claude.php` | CRUD visual profesional, cuadrante reinterpretado | Claude Sonnet 4.6 (jun 2026) |
-| `pendientes_deepseek.php` | CRUD con SQL Injection total | DeepSeek (jun 2026) |
-| `pendientes.php` | ✅ **Implementación de referencia** corregida | Kimi K2.6 (jun 2026) |
-| `pendientes.sql` | Script SQL de referencia | Kimi K2.6 (jun 2026) |
+| `grok.php` | CRUD con UPDATE roto | Grok (jun 2026) |
+| `gemini.php` | CRUD funcional, fecha DATE | Gemini (jun 2026) |
+| `claude.php` | CRUD visual profesional, cuadrante reinterpretado | Claude Sonnet 4.6 (jun 2026) |
+| `deepseek.php` | CRUD con SQL Injection total | DeepSeek (jun 2026) |
+| `kimi.php` | ✅ **Implementación de referencia** corregida | Kimi K2.6 (jun 2026) |
+| `kimi.sql` | Script SQL de referencia | Kimi K2.6 (jun 2026) |
 | `grokbusy.png` | Evidencia de prueba de imagen | Copilot |
 
 **Repositorio del benchmark:** [github.com/AlfonsoOrozcoAguilarnoNDA/vibecoding_eisenhower](https://github.com/AlfonsoOrozcoAguilarnoNDA/vibecoding_eisenhower/tree/main)
