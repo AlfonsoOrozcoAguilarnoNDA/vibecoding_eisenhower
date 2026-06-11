@@ -1,0 +1,451 @@
+<?php
+/**
+ * Script PHP para gestión de pedientes
+ * Versión: 1.01
+ * Modelo: Gemini Flash 2.6 - web
+ * Licencia: MIT
+ * Razonamiento : https://vibecodingmexico.com/tres-pruebas-para-grok/
+ *
+ * Copyright (c) 2026 Alfonso Orozco Aguilar 11 junio 2026
+ *
+ * Se otorga permiso, de forma gratuita, a cualquier persona que obtenga una copia
+ * de este software y los archivos de documentación asociados (el "Software"), para
+ * tratar en el Software sin restricción, incluyendo sin limitación los derechos
+ * de usar, copiar, modificar, fusionar, publicar, distribuir, sublicenciar, y/o
+ * vender copias del Software, y para permitir a las personas a las que se les
+ * proporcione el Software a hacerlo, sujeto a las siguientes condiciones:
+ *
+ * El aviso de copyright anterior y este aviso de permiso se incluirán en todas
+ * las copias o partes sustanciales del Software.
+ *
+ * EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
+ * IMPLÍCITA, INCLUYENDO PERO NO LIMITADO A LAS GARANTÍAS DE COMERCIABILIDAD,
+ * IDONEIDAD PARA UN PROPÓSITO PARTICULAR Y NO INFRACCIÓN. EN NINGÚN CASO LOS
+ * AUTORES O TITULARES DEL COPYRIGHT SERÁN RESPONSABLES DE NINGUNA RECLAMACIÓN,
+ * DAÑOS U OTRAS RESPONSABILIDADES, YA SEA EN UNA ACCIÓN DE CONTRATO, AGRAVIO O
+ * CUALQUIER OTRO MOTIVO, DERIVADAS DE, FUERA DE O EN CONEXIÓN CON EL SOFTWARE
+ * O EL USO U OTROS TRATOS EN EL SOFTWARE.
+ */
+
+// Configuración de Zona Horaria y Conexión
+date_default_timezone_set('America/Mexico_City');
+include "config.php"; // Provee el objeto $link (mysqli)
+
+// Auto-referencia para el formulario
+$self = htmlspecialchars($_SERVER['PHP_SELF']);
+
+// Mensajes de retroalimentación
+$mensaje = "";
+$tipo_mensaje = "";
+
+// --- PROCESAMIENTO CRUD (Procedural) ---
+
+// 1. Guardar o Actualizar
+if (isset($_POST['action']) && $_POST['action'] == 'save') {
+    $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+    $categoria = trim($_POST['categoria'] ?? '');
+    $urgencia = trim($_POST['urgencia'] ?? '');
+    $asunto = trim($_POST['asunto'] ?? '');
+    $descripcion = trim($_POST['descripcion'] ?? '');
+    $comentario = trim($_POST['comentario'] ?? '');
+    $fecha_compromiso = trim($_POST['fecha_compromiso'] ?? '');
+    $fecha_registro = date('Y-m-d H:i:s');
+
+    // Validación de obligatoriedad y longitudes máximas
+    if ($categoria === '' || $urgencia === '' || $asunto === '' || $descripcion === '' || $comentario === '' || $fecha_compromiso === '') {
+        $mensaje = "Todos los campos son estrictamente obligatorios.";
+        $tipo_mensaje = "danger";
+    } elseif (mb_strlen($descripcion) > 40) {
+        $mensaje = "La descripción no puede exceder los 40 caracteres.";
+        $tipo_mensaje = "danger";
+    } elseif (mb_strlen($comentario) > 80) {
+        $mensaje = "El comentario no puede exceder los 80 caracteres.";
+        $tipo_mensaje = "danger";
+    } else {
+        if ($id > 0) {
+            // Modificación
+            $stmt = mysqli_prepare($link, "UPDATE pendientes SET categoria=?, urgencia=?, asunto=?, descripcion=?, comentario=?, fecha_compromiso=? WHERE id=?");
+            mysqli_stmt_bind_param($stmt, "ssssssi", $categoria, $urgencia, $asunto, $descripcion, $comentario, $fecha_compromiso, $id);
+        } else {
+            // Inserción
+            $stmt = mysqli_prepare($link, "INSERT INTO pendientes (categoria, urgencia, asunto, descripcion, comentario, fecha_compromiso, fecha_registro) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            mysqli_stmt_bind_param($stmt, "sssssss", $categoria, $urgencia, $asunto, $descripcion, $comentario, $fecha_compromiso, $fecha_registro);
+        }
+
+        if (mysqli_stmt_execute($stmt)) {
+            $mensaje = ($id > 0) ? "Pendiente actualizado con éxito." : "Pendiente guardado correctamente.";
+            $tipo_mensaje = "success";
+        } else {
+            $mensaje = "Error en la base de datos: " . mysqli_error($link);
+            $tipo_mensaje = "danger";
+        }
+        mysqli_stmt_close($stmt);
+    }
+}
+
+// 2. Eliminar
+if (isset($_POST['action']) && $_POST['action'] == 'delete') {
+    $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+    $confirmar = isset($_POST['confirmar_borrado']) ? true : false;
+
+    if ($id > 0 && $confirmar) {
+        $stmt = mysqli_prepare($link, "DELETE FROM pendientes WHERE id = ?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        if (mysqli_stmt_execute($stmt)) {
+            $mensaje = "Registro eliminado correctamente.";
+            $tipo_mensaje = "success";
+        } else {
+            $mensaje = "Error al eliminar: " . mysqli_error($link);
+            $tipo_mensaje = "danger";
+        }
+        mysqli_stmt_close($stmt);
+    } else {
+        $mensaje = "Debe confirmar el checkbox para poder eliminar el registro.";
+        $tipo_mensaje = "warning";
+    }
+}
+
+// 3. Cargar datos para edición
+$edit_data = null;
+if (isset($_GET['edit'])) {
+    $edit_id = intval($_GET['edit']);
+    $result_edit = mysqli_query($link, "SELECT * FROM pendientes WHERE id = $edit_id");
+    if ($result_edit && mysqli_num_rows($result_edit) > 0) {
+        $edit_data = mysqli_fetch_assoc($result_edit);
+    }
+}
+
+// --- CONSULTAS PARA MÉTRICAS Y TABLA ---
+
+// Listado general de pendientes
+$result_list = mysqli_query($link, "SELECT * FROM pendientes ORDER BY fecha_compromiso ASC");
+
+// Cálculo de días de la tarea más antigua (basado en fecha_registro)
+$dias_antigua = 0;
+$res_antigua = mysqli_query($link, "SELECT fecha_registro FROM pendientes ORDER BY fecha_registro ASC LIMIT 1");
+if ($res_antigua && mysqli_num_rows($res_antigua) > 0) {
+    $row_antigua = mysqli_fetch_assoc($res_antigua);
+    $fecha_ant_dt = new DateTime($row_antigua['fecha_registro']);
+    $hoy_dt = new DateTime();
+    $intervalo = $hoy_dt->diff($fecha_ant_dt);
+    $dias_antigua = $intervalo->days;
+}
+
+// Contadores de Urgencia
+$urgencias_validas = [
+    'Urgente' => 0,
+    'Importante' => 0,
+    'Urgente Importante' => 0,
+    'Importante no Urgente' => 0
+];
+$total_pendientes = 0;
+
+$res_metricas = mysqli_query($link, "SELECT urgencia, COUNT(*) as total FROM pendientes GROUP BY urgencia");
+while ($row = mysqli_fetch_assoc($res_metricas)) {
+    if (isset($urgencias_validas[$row['urgencia']])) {
+        $urgencias_validas[$row['urgencia']] = intval($row['total']);
+        $total_pendientes += intval($row['total']);
+    }
+}
+
+// Obtener IP del cliente de forma segura
+$ip_cliente = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+    $ip_cliente = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0];
+}
+?>
+<!DOCTYPE html>
+<html lang="es" class="h-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Pendientes</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css">
+    
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            padding-top: 70px;
+            padding-bottom: 70px;
+        }
+        .card {
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+        }
+        .table {
+            color: #e0e0e0;
+        }
+        .table-dark {
+            background-color: #1e1e1e;
+        }
+        .form-control, .custom-select {
+            background-color: #2d2d2d;
+            border: 1px solid #444;
+            color: #fff;
+        }
+        .form-control:focus, .custom-select:focus {
+            background-color: #353535;
+            color: #fff;
+            border-color: #666;
+            box-shadow: none;
+        }
+        .navbar-dark {
+            background-color: #1f1f1f !important;
+            border-bottom: 1px solid #333;
+        }
+        .footer {
+            background-color: #1f1f1f;
+            border-top: 1px solid #333;
+            color: #aaa;
+        }
+        .char-counter {
+            font-size: 0.8rem;
+            color: #888;
+        }
+    </style>
+</head>
+<body class="d-flex flex-column h-100">
+
+    <nav class="navbar navbar-expand-md navbar-dark fixed-top">
+        <span class="navbar-brand mb-0 h1 text-info">
+            <i class="fas fa-robot"></i> Gemini Core Architecture
+        </span>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarCollapse">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle text-light" href="#" id="dropdownHerramientas" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        <i class="fas fa-external-link-alt"></i> Herramientas
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-right bg-dark" aria-labelledby="dropdownHerramientas">
+                        <a class="dropdown-item text-light hover-dark" href="https://grok.com" target="_blank">Grok</a>
+                        <a class="dropdown-item text-light hover-dark" href="https://google.com" target="_blank">Google</a>
+                        <a class="dropdown-item text-light hover-dark" href="https://janice.everef.net" target="_blank">Janice (EVE Prices)</a>
+                    </div>
+                </li>
+            </ul>
+            <div class="form-inline">
+                <a href="#" onclick="confirmarSalida(event);" class="btn btn-outline-danger my-2 my-sm-0">
+                    <i class="fas fa-door-open"></i> Salir
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container flex-shrink-0">
+        
+        <?php if (!empty($mensaje)): ?>
+            <div class="alert alert-<?php echo $tipo_mensaje; ?> alert-dismissible fade show" role="alert">
+                <?php echo htmlspecialchars($mensaje); ?>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        <?php endif; ?>
+
+        <div class="row">
+            <div class="col-lg-4 mb-4">
+                <div class="card card-body shadow">
+                    <h4 class="card-title text-info mb-4">
+                        <?php echo $edit_data ? '<i class="fas fa-edit"></i> Editar Pendiente' : '<i class="fas fa-plus-circle"></i> Nuevo Pendiente'; ?>
+                    </h4>
+                    <form action="<?php echo $self; ?>" method="POST" id="form-pendiente">
+                        <input type="hidden" name="action" value="save">
+                        <input type="hidden" name="id" value="<?php echo htmlspecialchars($edit_data['id'] ?? '0'); ?>">
+
+                        <div class="form-group">
+                            <label for="categoria">Categoría</label>
+                            <input type="text" name="categoria" id="categoria" class="form-control" required value="<?php echo htmlspecialchars($edit_data['categoria'] ?? ''); ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="urgencia">Urgencia</label>
+                            <select name="urgencia" id="urgencia" class="custom-select" required>
+                                <option value="" disabled <?php echo !$edit_data ? 'selected' : ''; ?>>Seleccione...</option>
+                                <option value="Urgente" <?php echo (isset($edit_data['urgencia']) && $edit_data['urgencia'] == 'Urgente') ? 'selected' : ''; ?>>Urgente</option>
+                                <option value="Importante" <?php echo (isset($edit_data['urgencia']) && $edit_data['urgencia'] == 'Importante') ? 'selected' : ''; ?>>Importante</option>
+                                <option value="Urgente Importante" <?php echo (isset($edit_data['urgencia']) && $edit_data['urgencia'] == 'Urgente Importante') ? 'selected' : ''; ?>>Urgente Importante</option>
+                                <option value="Importante no Urgente" <?php echo (isset($edit_data['urgencia']) && $edit_data['urgencia'] == 'Importante no Urgente') ? 'selected' : ''; ?>>Importante no Urgente</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="asunto">Asunto</label>
+                            <input type="text" name="asunto" id="asunto" class="form-control" required value="<?php echo htmlspecialchars($edit_data['asunto'] ?? ''); ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <div class="d-flex justify-content-between">
+                                <label for="descripcion">Descripción</label>
+                                <span class="char-counter" id="desc-count">0/40</span>
+                            </div>
+                            <input type="text" name="descripcion" id="descripcion" class="form-control" maxlength="40" required value="<?php echo htmlspecialchars($edit_data['descripcion'] ?? ''); ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <div class="d-flex justify-content-between">
+                                <label for="comentario">Comentario</label>
+                                <span class="char-counter" id="com-count">0/80</span>
+                            </div>
+                            <input type="text" name="comentario" id="comentario" class="form-control" maxlength="80" required value="<?php echo htmlspecialchars($edit_data['comentario'] ?? ''); ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="fecha_compromiso">Fecha para Realizarse</label>
+                            <input type="date" name="fecha_compromiso" id="fecha_compromiso" class="form-control" required value="<?php echo htmlspecialchars($edit_data['fecha_compromiso'] ?? ''); ?>">
+                        </div>
+
+                        <button type="submit" class="btn btn-info btn-block mt-4">
+                            <i class="fas fa-save"></i> Guardar Registro
+                        </button>
+                        <?php if ($edit_data): ?>
+                            <a href="<?php echo $self; ?>" class="btn btn-secondary btn-block mt-2">Cancelar Edición</a>
+                        <?php endif; ?>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-8 mb-4">
+                <div class="card card-body shadow">
+                    <h4 class="card-title text-info mb-4"><i class="fas fa-list-alt"></i> Bitácora de Pendientes</h4>
+                    <div class="table-responsive">
+                        <table class="table table-dark table-striped table-hover table-sm data-table">
+                            <thead>
+                                <tr>
+                                    <th>Categoría</th>
+                                    <th>Urgencia</th>
+                                    <th>Asunto</th>
+                                    <th>Compromiso</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (mysqli_num_rows($result_list) > 0): ?>
+                                    <?php while ($row = mysqli_fetch_assoc($result_list)): ?>
+                                        <tr>
+                                            <td class="align-middle"><?php echo htmlspecialchars($row['categoria']); ?></td>
+                                            <td class="align-middle"><span class="badge badge-secondary"><?php echo htmlspecialchars($row['urgencia']); ?></span></td>
+                                            <td class="align-middle" title="<?php echo htmlspecialchars($row['descripcion'] . ' | ' . $row['comentario']); ?>">
+                                                <?php echo htmlspecialchars($row['asunto']); ?>
+                                            </td>
+                                            <td class="align-middle"><?php echo htmlspecialchars($row['fecha_compromiso']); ?></td>
+                                            <td class="text-center align-middle">
+                                                <div class="d-inline-flex align-items-center">
+                                                    <a href="<?php echo $self . '?edit=' . $row['id']; ?>" class="btn btn-sm btn-warning mr-2" title="Editar">
+                                                        <i class="fas fa-pencil-alt"></i>
+                                                    </a>
+                                                    
+                                                    <form action="<?php echo $self; ?>" method="POST" class="form-inline" onsubmit="return confirmarBorrado(this);">
+                                                        <input type="hidden" name="action" value="delete">
+                                                        <input type="hidden" name="id" value="<?php echo $row['id']; ?>">
+                                                        <div class="custom-control custom-checkbox mr-1" title="Marcar para confirmar borrado">
+                                                            <input type="checkbox" name="confirmar_borrado" class="custom-control-input" id="chk-<?php echo $row['id']; ?>">
+                                                            <label class="custom-control-label text-danger" for="chk-<?php echo $row['id']; ?>"></label>
+                                                        </div>
+                                                        <button type="submit" class="btn btn-sm btn-danger" title="Eliminar">
+                                                            <i class="fas fa-trash-alt"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endwhile; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted">No hay tareas pendientes en el sistema.</td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card card-body shadow border-info">
+                    <h5 class="card-title text-info"><i class="fas fa-chart-pie"></i> Consola de Métricas Operativas</h5>
+                    <div class="row text-center">
+                        <div class="col-md-3 mb-2">
+                            <div class="bg-dark p-3 rounded border border-secondary">
+                                <span class="d-block text-muted text-uppercase small">Antigüedad Máxima</span>
+                                <span class="h3 font-weight-bold text-warning"><?php echo $dias_antigua; ?></span> <span class="small">días</span>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <div class="row">
+                                <?php foreach ($urgencias_validas as $key => $count): 
+                                    $pct = $total_pendientes > 0 ? round(($count / $total_pendientes) * 100, 1) : 0;
+                                ?>
+                                    <div class="col-sm-6 col-md-3 mb-2">
+                                        <div class="bg-dark p-2 rounded border border-secondary">
+                                            <span class="d-block text-truncate text-muted small" title="<?php echo $key; ?>"><?php echo $key; ?></span>
+                                            <span class="h4 font-weight-bold text-light"><?php echo $count; ?></span>
+                                            <span class="d-block text-info small"><?php echo $pct; ?>%</span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="footer mt-auto py-3 fixed-bottom">
+        <div class="container-fluid px-4 d-flex justify-content-between align-items-center small">
+            <span>PHP Version: <strong><?php echo PHP_VERSION; ?></strong></span>
+            <span>MySQLi Server: <strong><?php echo mysqli_get_server_info($link); ?></strong></span>
+            <span>Client IP: <strong class="text-info"><?php echo htmlspecialchars($ip_cliente); ?></strong></span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Funciones de validación e interfaz en lado del cliente
+        function confirmarSalida(e) {
+            e.preventDefault();
+            if (confirm("¿Está usted seguro de que desea salir del sistema?")) {
+                window.location.href = "https://google.com";
+            }
+        }
+
+        function confirmarBorrado(form) {
+            const checkbox = form.querySelector('input[name="confirmar_borrado"]');
+            if (!checkbox.checked) {
+                alert("Operación denegada: Debe marcar el checkbox de confirmación junto al botón de eliminar.");
+                return false;
+            }
+            return confirm("¿Confirmar eliminación permanente de este registro?");
+        }
+
+        // Manejo interactivo de contadores de caracteres en tiempo real
+        function setupCounter(inputId, counterId, maxLen) {
+            const input = document.getElementById(inputId);
+            const counter = document.getElementById(counterId);
+            
+            if(input && counter) {
+                const update = () => {
+                    counter.innerText = `${input.value.length}/${maxLen}`;
+                };
+                input.addEventListener('input', update);
+                update(); // Ejecución inicial (carga)
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            setupCounter('descripcion', 'desc-count', 40);
+            setupCounter('comentario', 'com-count', 80);
+        });
+    </script>
+</body>
+</html>
